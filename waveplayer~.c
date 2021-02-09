@@ -38,7 +38,7 @@ t_int *waveplayer_tilde_perform(t_int *w)
         
         //x->x_pos += 1;
         //if (x->x_pos > x->x_loop_end) x->x_pos = x->x_loop_start;
-        x->x_pos -= 1;
+        x->x_pos -= 2;
         if (x->x_pos < x->x_loop_start) x->x_pos = x->x_loop_end;
         
         bufnum = (uint32_t)x->x_pos / BUFSIZE;
@@ -74,7 +74,7 @@ void *waveplayer_tilde_new(t_floatarg f)
     x->x_out=outlet_new(&x->x_obj, &s_signal);
 
     x->x_loop_start = 1100;
-    x->x_loop_end = 200000;
+    x->x_loop_end = 300000;
     //x->x_pos = x->x_loop_start;
     x->x_pos = x->x_loop_end;
     x->x_current_buf = -1;
