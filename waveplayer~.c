@@ -14,23 +14,28 @@ typedef struct _waveplayer_tilde {
     t_int x_loop_end;         
     t_float x_speed;
     double x_pos;               // position in file
-    t_int x_current_buf;        // buffer currently being played, pos / bufsize
-    //uint8_t x_buf[BUFSIZE * 2]; // 2 bytes per sample
-    int16_t x_buf[BUFSIZE]; // 2 bytes per sample
-    int16_t x_last3[3];         // for stashing last 3 values of previous buffer needed for 4 point interp
-    FILE *x_fh;
+    t_int x_current_buf_num;    // buffer currently being played
+    int16_t x_buf[BUFSIZE];     // from disk
+    int16_t x_buf_last3[3];     // for stashing last 3 values of previous buffer, needed for 4 point interp
+    FILE *x_fh;                 // the sound file
 
 } t_waveplayer_tilde;
 
 // get buf from file 
 static void readbuf(t_waveplayer_tilde *x){
 
-    // stash last 3
-    x->x_last3[0] = x->x_buf[BUFSIZE - 3];
-    x->x_last3[1] = x->x_buf[BUFSIZE - 2];
-    x->x_last3[2] = x->x_buf[BUFSIZE - 1];
+    // stash last 3 (or first 3 for reverse play)
+    if (x->x_speed >= 0) {
+        x->x_buf_last3[0] = x->x_buf[BUFSIZE - 3];
+        x->x_buf_last3[1] = x->x_buf[BUFSIZE - 2];
+        x->x_buf_last3[2] = x->x_buf[BUFSIZE - 1];
+    } else {
+        x->x_buf_last3[0] = x->x_buf[0];
+        x->x_buf_last3[1] = x->x_buf[1];
+        x->x_buf_last3[2] = x->x_buf[2];
+    }
 
-    fseek(x->x_fh, x->x_current_buf * BUFSIZE * 2, SEEK_SET);
+    fseek(x->x_fh, x->x_current_buf_num * BUFSIZE * 2, SEEK_SET);
     fread(x->x_buf, 2, BUFSIZE, x->x_fh);
 }
 
@@ -47,49 +52,90 @@ t_int *waveplayer_tilde_perform(t_int *w)
         
         x->x_pos += x->x_speed;
 
-        // check loop, padding for interpolation window 
-        if (x->x_pos > (x->x_loop_end - 2)) x->x_pos = x->x_loop_start + 1;
+        // check loop, include padding for interpolation window
+        // go to loop end for reverse play
+        if (x->x_speed >= 0) {
+            if (x->x_pos > (x->x_loop_end - 2)) x->x_pos = x->x_loop_start + 1;
+        }
+        else {
+            if (x->x_pos < (x->x_loop_start + 1)) x->x_pos = x->x_loop_end - 2;
+        }
 
-        // bufnum is 2 samples ahead of pos cause we need x+2 for interp
-        bufnum = ((uint32_t)x->x_pos + 2) / BUFSIZE;
+        // bufnum is 2 samples ahead pos playing forward, or 1 sample behind in reverse
+        if (x->x_speed >= 0) bufnum = ((uint32_t)x->x_pos + 2) / BUFSIZE;
+        else bufnum = ((uint32_t)x->x_pos - 1) / BUFSIZE;
         bufi = (uint32_t)x->x_pos % BUFSIZE;
 
         // check if we need new buf
-        if (bufnum != x->x_current_buf) {
-            x->x_current_buf = bufnum;
+        if (bufnum != x->x_current_buf_num) {
+            x->x_current_buf_num = bufnum;
             readbuf(x);
         }
 
         t_sample frac,  a,  b,  c,  d, cminusb;
         frac = x->x_pos - (uint32_t)x->x_pos;
         
-        // get the 4 values for interp
-        if (bufi == BUFSIZE - 2) {
-            a = (t_sample)x->x_last3[0] / 32768;
-            b = (t_sample)x->x_last3[1] / 32768;
-            c = (t_sample)x->x_last3[2] / 32768;
-            d = (t_sample)x->x_buf[0] / 32768;
+        // get the 4 values for interpolation
+        // fwd
+        if (x->x_speed >= 0) {
+            if (bufi == BUFSIZE - 2) {
+                a = x->x_buf_last3[0];
+                b = x->x_buf_last3[1];
+                c = x->x_buf_last3[2];
+                d = x->x_buf[0];
+            }
+            else if (bufi == BUFSIZE - 1) {
+                a = x->x_buf_last3[1];
+                b = x->x_buf_last3[2];
+                c = x->x_buf[0];
+                d = x->x_buf[1];
+            }
+            else if (bufi == 0) {
+                a = x->x_buf_last3[2];
+                b = x->x_buf[0];
+                c = x->x_buf[1];
+                d = x->x_buf[2];
+            }
+            else {
+                a = x->x_buf[bufi-1];
+                b = x->x_buf[bufi];
+                c = x->x_buf[bufi+1];
+                d = x->x_buf[bufi+2];
+            }
         }
-        else if (bufi == BUFSIZE - 1) {
-            a = (t_sample)x->x_last3[1] / 32768;
-            b = (t_sample)x->x_last3[2] / 32768;
-            c = (t_sample)x->x_buf[0] / 32768;
-            d = (t_sample)x->x_buf[1] / 32768;
-        }
-        else if (bufi == 0) {
-            a = (t_sample)x->x_last3[2] / 32768;
-            b = (t_sample)x->x_buf[0] / 32768;
-            c = (t_sample)x->x_buf[1] / 32768;
-            d = (t_sample)x->x_buf[2] / 32768;
-        }
+        // reverse
         else {
-            a = (t_sample)x->x_buf[bufi-1] / 32768;
-            b = (t_sample)x->x_buf[bufi] / 32768;
-            c = (t_sample)x->x_buf[bufi+1] / 32768;
-            d = (t_sample)x->x_buf[bufi+2] / 32768;
+            if (bufi == 0) {
+                a = x->x_buf[BUFSIZE - 1];
+                b = x->x_buf_last3[0];
+                c = x->x_buf_last3[1];
+                d = x->x_buf_last3[2];
+            }
+            else if (bufi == BUFSIZE - 1) {
+                a = x->x_buf[BUFSIZE - 2];
+                b = x->x_buf[BUFSIZE - 1];
+                c = x->x_buf_last3[0];
+                d = x->x_buf_last3[1];
+            }
+            else if (bufi == BUFSIZE - 2) {
+                a = x->x_buf[BUFSIZE - 3];
+                b = x->x_buf[BUFSIZE - 2];
+                c = x->x_buf[BUFSIZE - 1];
+                d = x->x_buf_last3[0];
+            }
+            else {
+                a = x->x_buf[bufi-1];
+                b = x->x_buf[bufi];
+                c = x->x_buf[bufi+1];
+                d = x->x_buf[bufi+2];
+            }
         }
         
-//        *out++ = d;
+        a /= 32768;
+        b /= 32768;
+        c /= 32768;
+        d /= 32768;
+
         // 4 point polynomial interpolation from tabread4~ 
         cminusb = c-b;
         *out++ = b + frac * (
@@ -109,11 +155,12 @@ void waveplayer_tilde_dsp(t_waveplayer_tilde *x, t_signal **sp)
 void waveplayer_tilde_free(t_waveplayer_tilde *x)
 {
     outlet_free(x->x_out);
+    fclose(x->x_fh);
 }
 
 static void waveplayer_set_speed(t_waveplayer_tilde *x, t_float f){
     if (f > 3) f = 3;
-    if (f < 0) f = 0;
+    if (f < -3) f = -3;
     x->x_speed = f;
 }
 
@@ -126,14 +173,14 @@ void *waveplayer_tilde_new(t_floatarg f)
     x->x_loop_start = 1100;
     x->x_loop_end = 300000;
     x->x_pos = x->x_loop_start + 1;
-    x->x_current_buf = -1;
+    x->x_current_buf_num = -1;
     x->x_speed = 1;
-    x->x_last3[0] = 0;
-    x->x_last3[1] = 0;
-    x->x_last3[2] = 0;
+    x->x_buf_last3[0] = 0;
+    x->x_buf_last3[1] = 0;
+    x->x_buf_last3[2] = 0;
 
 
-    x->x_fh = fopen("test.wav","r");
+    x->x_fh = fopen("/usbdrive/test.wav","r");
     if( x->x_fh == NULL)
     {
     	pd_error(x, "Unable to open file");
