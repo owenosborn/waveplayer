@@ -14,16 +14,24 @@ typedef struct _waveplayer_tilde {
     t_int x_loop_end;         
     t_float x_speed;
     double x_pos;               // position in file
-    t_int x_current_buf;        // buffer currently being played
-    uint8_t x_buf[BUFSIZE * 2]; // 2 bytes per sample
+    t_int x_current_buf;        // buffer currently being played, pos / bufsize
+    //uint8_t x_buf[BUFSIZE * 2]; // 2 bytes per sample
+    int16_t x_buf[BUFSIZE]; // 2 bytes per sample
+    int16_t x_last3[3];         // for stashing last 3 values of previous buffer needed for 4 point interp
     FILE *x_fh;
 
 } t_waveplayer_tilde;
 
 // get buf from file 
 static void readbuf(t_waveplayer_tilde *x){
+
+    // stash last 3
+    x->x_last3[0] = x->x_buf[BUFSIZE - 3];
+    x->x_last3[1] = x->x_buf[BUFSIZE - 2];
+    x->x_last3[2] = x->x_buf[BUFSIZE - 1];
+
     fseek(x->x_fh, x->x_current_buf * BUFSIZE * 2, SEEK_SET);
-    fread(x->x_buf, 1, BUFSIZE * 2, x->x_fh);
+    fread(x->x_buf, 2, BUFSIZE, x->x_fh);
 }
 
 t_int *waveplayer_tilde_perform(t_int *w)
@@ -38,20 +46,57 @@ t_int *waveplayer_tilde_perform(t_int *w)
     for (i = 0; i<n; i++){
         
         x->x_pos += x->x_speed;
-        if (x->x_pos > x->x_loop_end) x->x_pos = x->x_loop_start;
-        
-        bufnum = (uint32_t)x->x_pos / BUFSIZE;
+
+        // check loop, padding for interpolation window 
+        if (x->x_pos > (x->x_loop_end - 2)) x->x_pos = x->x_loop_start + 1;
+
+        // bufnum is 2 samples ahead of pos cause we need x+2 for interp
+        bufnum = ((uint32_t)x->x_pos + 2) / BUFSIZE;
         bufi = (uint32_t)x->x_pos % BUFSIZE;
 
+        // check if we need new buf
         if (bufnum != x->x_current_buf) {
             x->x_current_buf = bufnum;
             readbuf(x);
         }
 
-        tmp = 0;
-        tmp = x->x_buf[bufi * 2 + 1] << 8;
-        tmp |= x->x_buf[bufi * 2];
-        *out++ = (t_float)tmp / 32768;
+        t_sample frac,  a,  b,  c,  d, cminusb;
+        frac = x->x_pos - (uint32_t)x->x_pos;
+        
+        // get the 4 values for interp
+        if (bufi == BUFSIZE - 2) {
+            a = (t_sample)x->x_last3[0] / 32768;
+            b = (t_sample)x->x_last3[1] / 32768;
+            c = (t_sample)x->x_last3[2] / 32768;
+            d = (t_sample)x->x_buf[0] / 32768;
+        }
+        else if (bufi == BUFSIZE - 1) {
+            a = (t_sample)x->x_last3[1] / 32768;
+            b = (t_sample)x->x_last3[2] / 32768;
+            c = (t_sample)x->x_buf[0] / 32768;
+            d = (t_sample)x->x_buf[1] / 32768;
+        }
+        else if (bufi == 0) {
+            a = (t_sample)x->x_last3[2] / 32768;
+            b = (t_sample)x->x_buf[0] / 32768;
+            c = (t_sample)x->x_buf[1] / 32768;
+            d = (t_sample)x->x_buf[2] / 32768;
+        }
+        else {
+            a = (t_sample)x->x_buf[bufi-1] / 32768;
+            b = (t_sample)x->x_buf[bufi] / 32768;
+            c = (t_sample)x->x_buf[bufi+1] / 32768;
+            d = (t_sample)x->x_buf[bufi+2] / 32768;
+        }
+        
+//        *out++ = d;
+        // 4 point polynomial interpolation from tabread4~ 
+        cminusb = c-b;
+        *out++ = b + frac * (
+            cminusb - 0.1666667f * (1.-frac) * (
+                (d - a - 3.0f * cminusb) * frac + (d + 2.0f*a - 3.0f*b)
+            )
+        );
     }
     return (w+4);
 }
@@ -80,15 +125,18 @@ void *waveplayer_tilde_new(t_floatarg f)
 
     x->x_loop_start = 1100;
     x->x_loop_end = 300000;
-    x->x_pos = x->x_loop_start;
+    x->x_pos = x->x_loop_start + 1;
     x->x_current_buf = -1;
     x->x_speed = 1;
+    x->x_last3[0] = 0;
+    x->x_last3[1] = 0;
+    x->x_last3[2] = 0;
+
 
     x->x_fh = fopen("test.wav","r");
     if( x->x_fh == NULL)
     {
-        perror("Unable to read file\n");
-        //return(1);
+    	pd_error(x, "Unable to open file");
     }
 
     return (void *)x;
