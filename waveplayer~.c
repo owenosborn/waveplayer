@@ -11,7 +11,8 @@ typedef struct _waveplayer_tilde {
     t_object  x_obj;
     t_outlet *x_out;
     t_int x_loop_start;
-    t_int x_loop_end;           
+    t_int x_loop_end;         
+    t_float x_speed;
     double x_pos;               // position in file
     t_int x_current_buf;        // buffer currently being played
     uint8_t x_buf[BUFSIZE * 2]; // 2 bytes per sample
@@ -36,10 +37,8 @@ t_int *waveplayer_tilde_perform(t_int *w)
     
     for (i = 0; i<n; i++){
         
-        //x->x_pos += 1;
-        //if (x->x_pos > x->x_loop_end) x->x_pos = x->x_loop_start;
-        x->x_pos -= 2;
-        if (x->x_pos < x->x_loop_start) x->x_pos = x->x_loop_end;
+        x->x_pos += x->x_speed;
+        if (x->x_pos > x->x_loop_end) x->x_pos = x->x_loop_start;
         
         bufnum = (uint32_t)x->x_pos / BUFSIZE;
         bufi = (uint32_t)x->x_pos % BUFSIZE;
@@ -67,6 +66,12 @@ void waveplayer_tilde_free(t_waveplayer_tilde *x)
     outlet_free(x->x_out);
 }
 
+static void waveplayer_set_speed(t_waveplayer_tilde *x, t_float f){
+    if (f > 3) f = 3;
+    if (f < 0) f = 0;
+    x->x_speed = f;
+}
+
 void *waveplayer_tilde_new(t_floatarg f)
 {
     t_waveplayer_tilde *x = (t_waveplayer_tilde *)pd_new(waveplayer_tilde_class);
@@ -75,9 +80,9 @@ void *waveplayer_tilde_new(t_floatarg f)
 
     x->x_loop_start = 1100;
     x->x_loop_end = 300000;
-    //x->x_pos = x->x_loop_start;
-    x->x_pos = x->x_loop_end;
+    x->x_pos = x->x_loop_start;
     x->x_current_buf = -1;
+    x->x_speed = 1;
 
     x->x_fh = fopen("test.wav","r");
     if( x->x_fh == NULL)
@@ -90,12 +95,15 @@ void *waveplayer_tilde_new(t_floatarg f)
 }
 
 void waveplayer_tilde_setup(void) {
-  waveplayer_tilde_class = class_new(gensym("waveplayer~"),
+    waveplayer_tilde_class = class_new(gensym("waveplayer~"),
         (t_newmethod)waveplayer_tilde_new,
         0, sizeof(t_waveplayer_tilde),
         CLASS_DEFAULT,
         A_DEFFLOAT, 0);
+    
+    class_addfloat(waveplayer_tilde_class, (t_method)waveplayer_set_speed);
 
-  class_addmethod(waveplayer_tilde_class,
+    class_addmethod(waveplayer_tilde_class,
         (t_method)waveplayer_tilde_dsp, gensym("dsp"), A_CANT, 0);
+
 }
