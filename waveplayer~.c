@@ -55,10 +55,10 @@ t_int *waveplayer_tilde_perform(t_int *w)
         // check loop, include padding for interpolation window
         // go to loop end for reverse play
         if (x->x_speed >= 0) {
-            if (x->x_pos > (x->x_loop_end - 2)) x->x_pos = x->x_loop_start + 1;
+            if (x->x_pos >= (x->x_loop_end - 2)) x->x_pos = x->x_loop_start + 1;
         }
         else {
-            if (x->x_pos < (x->x_loop_start + 1)) x->x_pos = x->x_loop_end - 2;
+            if (x->x_pos <= (x->x_loop_start + 1)) x->x_pos = x->x_loop_end - 2;
         }
 
         // bufnum is 2 samples ahead pos playing forward, or 1 sample behind in reverse
@@ -170,8 +170,8 @@ void *waveplayer_tilde_new(t_floatarg f)
 
     x->x_out=outlet_new(&x->x_obj, &s_signal);
 
-    x->x_loop_start = 1100;
-    x->x_loop_end = 300000;
+    x->x_loop_start = 44;  // 44 wave header
+    x->x_loop_end = 44100;
     x->x_pos = x->x_loop_start + 1;
     x->x_current_buf_num = -1;
     x->x_speed = 1;
@@ -180,11 +180,18 @@ void *waveplayer_tilde_new(t_floatarg f)
     x->x_buf_last3[2] = 0;
 
 
-    x->x_fh = fopen("/usbdrive/test.wav","r");
+    x->x_fh = fopen("./test.wav","r");
     if( x->x_fh == NULL)
     {
     	pd_error(x, "Unable to open file");
     }
+
+    uint32_t len;
+    fseek(x->x_fh, 0, SEEK_END);
+    len = ftell(x->x_fh);
+    post("loaded file len: %d samps", len / 2);
+    post("that is: %f secs", (float)len / 2 / 44100);
+    x->x_loop_end = (len / 2);
 
     return (void *)x;
 }
