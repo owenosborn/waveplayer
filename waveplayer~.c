@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "m_pd.h"
 
@@ -29,17 +30,49 @@ static void readbuf(t_waveplayer_tilde *x){
         x->x_buf_last3[0] = x->x_buf[BUFSIZE - 3];
         x->x_buf_last3[1] = x->x_buf[BUFSIZE - 2];
         x->x_buf_last3[2] = x->x_buf[BUFSIZE - 1];
-    } else {
+    } 
+    else {
         x->x_buf_last3[0] = x->x_buf[0];
         x->x_buf_last3[1] = x->x_buf[1];
         x->x_buf_last3[2] = x->x_buf[2];
     }
 
-    fseek(x->x_fh, x->x_current_buf_num * BUFSIZE * 2, SEEK_SET);
-    fread(x->x_buf, 2, BUFSIZE, x->x_fh);
+    if (x->x_fh != NULL) {
+        fseek(x->x_fh, x->x_current_buf_num * BUFSIZE * 2, SEEK_SET);
+        fread(x->x_buf, 2, BUFSIZE, x->x_fh);
+    }
+    else {
+        // fill with 0 if no file
+        memset(x->x_buf, 0, BUFSIZE * 2);
+        memset(x->x_buf_last3, 0, 6);
+    }
+
 }
 
-t_int *waveplayer_tilde_perform(t_int *w)
+static void openfile(t_waveplayer_tilde *x, const char *fn){
+
+    if (x->x_fh != NULL) fclose(x->x_fh);
+
+    post("opening %s", fn);
+    x->x_fh = fopen(fn,"r");
+
+    if( x->x_fh == NULL) {
+        pd_error(x, "Unable to open file %s", fn);
+        return;
+    }
+
+    uint32_t len;
+    fseek(x->x_fh, 0, SEEK_END);
+    len = ftell(x->x_fh);
+    post("loaded file len: %d samples", (len - 44) / 2);
+    post("that is: %f secs", (float)(len - 44) / 2 / 44100);
+    x->x_loop_end = (len / 2);
+    x->x_loop_start = 44;           // skip wave header
+    x->x_pos = x->x_loop_start + 1;
+    x->x_current_buf_num = -1;     // force read 
+}
+
+static t_int *waveplayer_tilde_perform(t_int *w)
 {
     t_waveplayer_tilde *x = (t_waveplayer_tilde *)(w[1]);
     t_sample *out = (t_sample *)(w[2]);
@@ -147,51 +180,42 @@ t_int *waveplayer_tilde_perform(t_int *w)
     return (w+4);
 }
 
-void waveplayer_tilde_dsp(t_waveplayer_tilde *x, t_signal **sp)
+static void waveplayer_tilde_dsp(t_waveplayer_tilde *x, t_signal **sp)
 {
     dsp_add(waveplayer_tilde_perform, 3, x, sp[0]->s_vec, (t_int)sp[0]->s_n);
 }
 
-void waveplayer_tilde_free(t_waveplayer_tilde *x)
+static void waveplayer_tilde_free(t_waveplayer_tilde *x)
 {
     outlet_free(x->x_out);
-    fclose(x->x_fh);
+    if (x->x_fh != NULL) fclose(x->x_fh);
 }
 
-static void waveplayer_set_speed(t_waveplayer_tilde *x, t_float f){
+static void waveplayer_set_speed(t_waveplayer_tilde *x, t_floatarg f){
     if (f > 3) f = 3;
     if (f < -3) f = -3;
     x->x_speed = f;
 }
 
-void *waveplayer_tilde_new(t_floatarg f)
+static void waveplayer_open(t_waveplayer_tilde *x, t_symbol *s, int argc, t_atom *argv){
+    t_symbol *filesym = atom_getsymbolarg(0, argc, argv);
+    openfile(x, filesym->s_name);
+}
+
+static void *waveplayer_tilde_new(t_floatarg f)
 {
     t_waveplayer_tilde *x = (t_waveplayer_tilde *)pd_new(waveplayer_tilde_class);
 
     x->x_out=outlet_new(&x->x_obj, &s_signal);
 
-    x->x_loop_start = 44;  // 44 wave header
+    x->x_loop_start = 44;   // 44 wave header
     x->x_loop_end = 44100;
     x->x_pos = x->x_loop_start + 1;
-    x->x_current_buf_num = -1;
+    x->x_current_buf_num = -1; // force read 
     x->x_speed = 1;
     x->x_buf_last3[0] = 0;
     x->x_buf_last3[1] = 0;
     x->x_buf_last3[2] = 0;
-
-
-    x->x_fh = fopen("./test.wav","r");
-    if( x->x_fh == NULL)
-    {
-    	pd_error(x, "Unable to open file");
-    }
-
-    uint32_t len;
-    fseek(x->x_fh, 0, SEEK_END);
-    len = ftell(x->x_fh);
-    post("loaded file len: %d samps", len / 2);
-    post("that is: %f secs", (float)len / 2 / 44100);
-    x->x_loop_end = (len / 2);
 
     return (void *)x;
 }
@@ -201,11 +225,10 @@ void waveplayer_tilde_setup(void) {
         (t_newmethod)waveplayer_tilde_new,
         0, sizeof(t_waveplayer_tilde),
         CLASS_DEFAULT,
-        A_DEFFLOAT, 0);
+        A_GIMME, 0);
     
     class_addfloat(waveplayer_tilde_class, (t_method)waveplayer_set_speed);
-
-    class_addmethod(waveplayer_tilde_class,
-        (t_method)waveplayer_tilde_dsp, gensym("dsp"), A_CANT, 0);
+    class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_open, gensym("open"), A_GIMME, 0);
+    class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_tilde_dsp, gensym("dsp"), A_CANT, 0);
 
 }
