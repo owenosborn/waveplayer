@@ -1,4 +1,4 @@
-#N canvas 250 422 997 490 10;
+#N canvas 252 416 997 490 10;
 #X obj 235 397 dac~;
 #X obj 266 258 waveplayer~;
 #X floatatom 65 137 5 0 0 0 - - -, f 5;
@@ -15,6 +15,13 @@
 #X msg 174 68 0 1000;
 #X obj 116 133 line 0 5;
 #X text 246 60 speed limited to -3 to 3;
+#X obj 606 382 writesf~;
+#X obj 593 288 adc~;
+#X msg 648 285 open sounds/thing.wav;
+#X msg 489 210 open sounds/thing.wav;
+#X msg 665 310 start;
+#X msg 704 338 stop;
+#X msg 490 35 close;
 #X connect 1 0 0 0;
 #X connect 2 0 1 0;
 #X connect 3 0 1 0;
@@ -29,3 +36,10 @@
 #X connect 12 0 14 0;
 #X connect 13 0 14 0;
 #X connect 14 0 1 0;
+#X connect 17 0 16 0;
+#X connect 17 1 16 0;
+#X connect 18 0 16 0;
+#X connect 19 0 1 0;
+#X connect 20 0 16 0;
+#X connect 21 0 16 0;
+#X connect 22 0 1 0;

@@ -26,6 +26,7 @@ typedef struct _waveplayer_tilde {
     t_int x_cindex;                         // the child index of shared buf
     t_int x_pindex;                         // parent index of shared buf
     t_int x_openfile;                       // flag to signal new open message
+    t_int x_closefile;                      // flag to close 
     pthread_t x_childthread;
     pthread_mutex_t x_mutex;
     //pthread_cond_t x_requestcondition;
@@ -50,7 +51,7 @@ static void *waveplayer_child(void *zz) {
 
         // should be using pthread_cond_wait
         pthread_mutex_unlock(&x->x_mutex);
-        usleep(2000);
+        usleep(5000);
         pthread_mutex_lock(&x->x_mutex);
 
         // check flag for new open
@@ -64,6 +65,7 @@ static void *waveplayer_child(void *zz) {
 
             pthread_mutex_unlock(&x->x_mutex);    // unlock during open
             if (x->x_fh != NULL) fclose(x->x_fh); // close the file if one is open
+
             x->x_fh = fopen(fn,"r");
             if( x->x_fh == NULL) {
                 pd_error(x, "Unable to open file %s", fn);
@@ -84,6 +86,22 @@ static void *waveplayer_child(void *zz) {
             x->x_pindex = 0;
             x->x_cindex = 0;
         }
+        
+        // check flag for close
+        if (x->x_closefile) {
+            x->x_closefile = 0;
+            
+            // zero out the shared buf
+            memset(x->x_shared_buf, 0, sizeof(x->x_shared_buf));
+
+            pthread_mutex_unlock(&x->x_mutex); 
+            if (x->x_fh != NULL) {
+                fclose(x->x_fh); 
+                x->x_fh = NULL;
+            }
+            pthread_mutex_lock(&x->x_mutex);
+        }
+
 
         while (x->x_cindex != x->x_pindex) {        
             x->x_pos += x->x_speed;
@@ -257,6 +275,12 @@ static void waveplayer_open(t_waveplayer_tilde *x, t_symbol *s, int argc, t_atom
     pthread_mutex_unlock(&x->x_mutex);
 }
 
+static void waveplayer_close(t_waveplayer_tilde *x, t_symbol *s, int argc, t_atom *argv){
+    pthread_mutex_lock(&x->x_mutex);
+    x->x_closefile = 1;
+    pthread_mutex_unlock(&x->x_mutex);
+}
+
 static void *waveplayer_tilde_new(t_floatarg f)
 {
     t_waveplayer_tilde *x = (t_waveplayer_tilde *)pd_new(waveplayer_tilde_class);
@@ -274,6 +298,7 @@ static void *waveplayer_tilde_new(t_floatarg f)
     x->x_pindex = 0;
     x->x_cindex = 0;
     x->x_openfile = 0;
+    x->x_closefile = 0;
 
     pthread_mutex_init(&x->x_mutex, 0);
     pthread_create(&x->x_childthread, 0, waveplayer_child, x);
@@ -290,5 +315,6 @@ void waveplayer_tilde_setup(void) {
     
     class_addfloat(waveplayer_tilde_class, (t_method)waveplayer_set_speed);
     class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_open, gensym("open"), A_GIMME, 0);
+    class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_close, gensym("close"), A_GIMME, 0);
     class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_tilde_dsp, gensym("dsp"), A_CANT, 0);
 }
