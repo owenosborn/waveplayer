@@ -36,8 +36,8 @@ UNITTESTS =
 #------------------------------------------------------------------------------#
 
 ALL_CFLAGS = -I"$(PD_INCLUDE)"
-ALL_LDFLAGS = 
-SHARED_LDFLAGS = 
+ALL_LDFLAGS = -lpthread
+SHARED_LDFLAGS = -lpthread
 ALL_LIBS = 
 
 
