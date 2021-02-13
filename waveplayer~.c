@@ -147,8 +147,8 @@ static void *waveplayer_child(void *zz) {
                 }
                 else {
                     // fill with 0 if no file
-                    memset(x->x_buf, 0, DISK_BUFSIZE * 2);
-                    memset(x->x_buf_last3, 0, 6);
+                    memset(x->x_buf, 0, sizeof(x->x_buf));
+                    memset(x->x_buf_last3, 0, sizeof(x->x_buf_last3));
                 }
             }
 
@@ -313,15 +313,19 @@ static void *waveplayer_tilde_new(t_floatarg f)
     x->x_pos = x->x_loop_start + 1;
     x->x_current_buf_num = -1; // force read 
     x->x_speed = 1;
-    x->x_buf_last3[0] = 0;
-    x->x_buf_last3[1] = 0;
-    x->x_buf_last3[2] = 0;
     x->x_pindex = 0;
     x->x_cindex = 0;
     x->x_openfile = 0;
     x->x_closefile = 0;
     x->x_exitchild = 0;
+    x->x_fh = NULL;
 
+    // zero bufs
+    memset(x->x_buf, 0, sizeof(x->x_buf));
+    memset(x->x_buf_last3, 0, sizeof(x->x_buf_last3));
+    memset(x->x_shared_buf, 0, sizeof(x->x_shared_buf));
+    
+    // start child
     pthread_mutex_init(&x->x_mutex, 0);
     pthread_create(&x->x_childthread, 0, waveplayer_child, x);
 
