@@ -27,6 +27,7 @@ typedef struct _waveplayer_tilde {
     t_int x_pindex;                         // parent index of shared buf
     t_int x_openfile;                       // flag to signal new open message
     t_int x_closefile;                      // flag to close 
+    t_int x_exitchild;                      // flag to exit child thread when freeing 
     pthread_t x_childthread;
     pthread_mutex_t x_mutex;
     //pthread_cond_t x_requestcondition;
@@ -36,7 +37,7 @@ typedef struct _waveplayer_tilde {
 } t_waveplayer_tilde;
 
 
-// child thread does file I/O and interpolation
+// child thread does file I/O and varispeed playback
 static void *waveplayer_child(void *zz) {
     t_waveplayer_tilde *x = zz;
 
@@ -49,7 +50,8 @@ static void *waveplayer_child(void *zz) {
     
     while (1) {
 
-        // should be using pthread_cond_wait
+        // wake up every 5 ms 
+        // should be using pthread cond...
         pthread_mutex_unlock(&x->x_mutex);
         usleep(5000);
         pthread_mutex_lock(&x->x_mutex);
@@ -223,8 +225,19 @@ static void *waveplayer_child(void *zz) {
             x->x_cindex++;
             x->x_cindex %= SHARED_BUFSIZE;
         }
+        
+        // check for exit
+        if (x->x_exitchild) {
+           break;
+        }
     }
     pthread_mutex_unlock(&x->x_mutex);
+    // clean up
+    if (x->x_fh != NULL) {
+        fclose(x->x_fh); 
+        x->x_fh = NULL;
+    }
+    //puts("exit waveplayer io thread");
     return 0;
 }
 
@@ -251,10 +264,17 @@ static void waveplayer_tilde_dsp(t_waveplayer_tilde *x, t_signal **sp)
 
 static void waveplayer_tilde_free(t_waveplayer_tilde *x)
 {
+    void *threadrtn;
     outlet_free(x->x_out);
-    if (x->x_fh != NULL) fclose(x->x_fh);
-
+    
     // clean up thread
+    pthread_mutex_lock(&x->x_mutex);
+    x->x_exitchild = 1;
+    pthread_mutex_unlock(&x->x_mutex);
+
+    // wait until it finish
+    pthread_join(x->x_childthread, &threadrtn);
+    pthread_mutex_destroy(&x->x_mutex);
 }
 
 static void waveplayer_set_speed(t_waveplayer_tilde *x, t_floatarg f){
@@ -299,6 +319,7 @@ static void *waveplayer_tilde_new(t_floatarg f)
     x->x_cindex = 0;
     x->x_openfile = 0;
     x->x_closefile = 0;
+    x->x_exitchild = 0;
 
     pthread_mutex_init(&x->x_mutex, 0);
     pthread_create(&x->x_childthread, 0, waveplayer_child, x);
@@ -309,7 +330,7 @@ static void *waveplayer_tilde_new(t_floatarg f)
 void waveplayer_tilde_setup(void) {
     waveplayer_tilde_class = class_new(gensym("waveplayer~"),
         (t_newmethod)waveplayer_tilde_new,
-        0, sizeof(t_waveplayer_tilde),
+        (t_method)waveplayer_tilde_free, sizeof(t_waveplayer_tilde),
         CLASS_DEFAULT,
         A_GIMME, 0);
     
