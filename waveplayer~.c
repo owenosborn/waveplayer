@@ -30,7 +30,6 @@ typedef struct _waveplayer_tilde {
     t_int x_exitchild;                      // flag to exit child thread when freeing 
     pthread_t x_childthread;
     pthread_mutex_t x_mutex;
-    //pthread_cond_t x_requestcondition;
 
     FILE *x_fh;                             // the sound file
 
@@ -66,18 +65,21 @@ static void *waveplayer_child(void *zz) {
             fn = x->x_filename;
 
             pthread_mutex_unlock(&x->x_mutex);    // unlock during open
-            if (x->x_fh != NULL) fclose(x->x_fh); // close the file if one is open
-
+            if (x->x_fh != NULL) {
+                fclose(x->x_fh); // close the file if one is open
+                x->x_fh = NULL;
+            }
             x->x_fh = fopen(fn,"r");
             if( x->x_fh == NULL) {
-                pd_error(x, "Unable to open file %s", fn);
+                // posting this message can cause issues in gui??
+                // pd_error(x, "Unable to open file %s", fn);
                 file_length = 44100;              // just a dummy length cause we need something
             } 
             else {
                 fseek(x->x_fh, 0, SEEK_END);
                 file_length = ftell(x->x_fh);
-                post("loaded file len: %d samples", (file_length - 44) / 2);
-                post("that is: %f secs", (float)(file_length - 44) / 2 / 44100);
+                //printf("loaded file len: %d samples\n", (file_length - 44) / 2);
+                //printf("that is: %f secs\n", (float)(file_length - 44) / 2 / 44100);
             }
             pthread_mutex_lock(&x->x_mutex);
 
@@ -103,7 +105,6 @@ static void *waveplayer_child(void *zz) {
             }
             pthread_mutex_lock(&x->x_mutex);
         }
-
 
         while (x->x_cindex != x->x_pindex) {        
             x->x_pos += x->x_speed;
