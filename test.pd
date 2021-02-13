@@ -1,4 +1,4 @@
-#N canvas 596 274 997 490 10;
+#N canvas 598 268 997 490 10;
 #X obj 259 446 dac~;
 #X obj 267 258 waveplayer~;
 #X floatatom 65 137 5 0 0 0 - - -, f 5;
