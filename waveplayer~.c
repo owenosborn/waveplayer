@@ -59,7 +59,9 @@ static void *waveplayer_child(void *zz) {
         if (x->x_openfile) {
             x->x_openfile = 0;
                 
-            // zero out the shared buf
+            // zero bufs
+            memset(x->x_buf, 0, sizeof(x->x_buf));
+            memset(x->x_buf_last3, 0, sizeof(x->x_buf_last3));
             memset(x->x_shared_buf, 0, sizeof(x->x_shared_buf));
 
             fn = x->x_filename;
@@ -95,7 +97,9 @@ static void *waveplayer_child(void *zz) {
         if (x->x_closefile) {
             x->x_closefile = 0;
             
-            // zero out the shared buf
+            // zero bufs
+            memset(x->x_buf, 0, sizeof(x->x_buf));
+            memset(x->x_buf_last3, 0, sizeof(x->x_buf_last3));
             memset(x->x_shared_buf, 0, sizeof(x->x_shared_buf));
 
             pthread_mutex_unlock(&x->x_mutex); 
@@ -245,22 +249,32 @@ static void *waveplayer_child(void *zz) {
 static t_int *waveplayer_tilde_perform(t_int *w)
 {
     t_waveplayer_tilde *x = (t_waveplayer_tilde *)(w[1]);
-    t_sample *out = (t_sample *)(w[2]);
+    t_sample *in = (t_sample *)(w[2]);
+    t_sample *out = (t_sample *)(w[3]);
     
-    int n = (int)(w[3]);
+    int n = (int)(w[4]);
+
+    // copy a vec from the the shared buf
     pthread_mutex_lock(&x->x_mutex);
+
+    // grab the first speed value in vec
+    x->x_speed = *in;
+    if (x->x_speed > 4) x->x_speed = 4;
+    if (x->x_speed < -4) x->x_speed = -4;
+
     while (n--) {
         *out++ = x->x_shared_buf[x->x_pindex];
         x->x_pindex++;
         x->x_pindex %= SHARED_BUFSIZE;    
     }
     pthread_mutex_unlock(&x->x_mutex);
-    return (w+4);
+    return (w+5);
 }
 
 static void waveplayer_tilde_dsp(t_waveplayer_tilde *x, t_signal **sp)
 {
-    dsp_add(waveplayer_tilde_perform, 3, x, sp[0]->s_vec, (t_int)sp[0]->s_n);
+    //dsp_add(waveplayer_tilde_perform, 3, x, sp[0]->s_vec, (t_int)sp[0]->s_n);
+    dsp_add(waveplayer_tilde_perform, 4, x, sp[0]->s_vec, sp[1]->s_vec, sp[0]->s_n);
 }
 
 static void waveplayer_tilde_free(t_waveplayer_tilde *x)
@@ -279,8 +293,8 @@ static void waveplayer_tilde_free(t_waveplayer_tilde *x)
 }
 
 static void waveplayer_set_speed(t_waveplayer_tilde *x, t_floatarg f){
-    if (f > 3) f = 3;
-    if (f < -3) f = -3;
+    if (f > 4) f = 4;
+    if (f < -4) f = -4;
 
     pthread_mutex_lock(&x->x_mutex);
     x->x_speed = f;
@@ -339,6 +353,7 @@ void waveplayer_tilde_setup(void) {
         CLASS_DEFAULT,
         A_GIMME, 0);
     
+    CLASS_MAINSIGNALIN(waveplayer_tilde_class, t_waveplayer_tilde, x_speed);
     class_addfloat(waveplayer_tilde_class, (t_method)waveplayer_set_speed);
     class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_open, gensym("open"), A_GIMME, 0);
     class_addmethod(waveplayer_tilde_class, (t_method)waveplayer_close, gensym("close"), A_GIMME, 0);
