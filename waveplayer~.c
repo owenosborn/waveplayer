@@ -3,7 +3,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
-
+#include <unistd.h>
 #include "m_pd.h"
 
 #define DISK_BUFSIZE 1024       // to read from disk, in samples
