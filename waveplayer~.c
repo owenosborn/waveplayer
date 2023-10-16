@@ -14,9 +14,11 @@ static t_class *waveplayer_tilde_class;
 typedef struct _waveplayer_tilde {
     t_object  x_obj;
     t_outlet *x_out;
+    t_outlet *x_length_outlet;                 // outputs length
     t_int x_loop_start;
     t_int x_loop_end;         
     t_float x_speed;
+    t_float x_file_length;
     char *x_filename;                       // name of file (with path)
     double x_pos;                           // sample position in file
     t_int x_current_buf_num;                // buffer position in file
@@ -26,6 +28,7 @@ typedef struct _waveplayer_tilde {
     t_int x_cindex;                         // the child index of shared buf
     t_int x_pindex;                         // parent index of shared buf
     t_int x_openfile;                       // flag to signal new open message
+    t_int x_file_opened;                    // flag to signal new file was opened
     t_int x_closefile;                      // flag to close 
     t_int x_exitchild;                      // flag to exit child thread when freeing 
     pthread_t x_childthread;
@@ -91,6 +94,8 @@ static void *waveplayer_child(void *zz) {
             x->x_current_buf_num = -1;     // force read 
             x->x_pindex = 0;
             x->x_cindex = 0;
+            x->x_file_length = file_length / 2;
+            x->x_file_opened = 1;
         }
         
         // check flag for close
@@ -267,6 +272,14 @@ static t_int *waveplayer_tilde_perform(t_int *w)
         x->x_pindex++;
         x->x_pindex %= SHARED_BUFSIZE;    
     }
+
+    // check if new file was opened
+    if (x->x_file_opened){
+        x->x_file_opened = 0;
+        post("File opened,length is: %f", x->x_file_length);
+        outlet_float(x->x_length_outlet, x->x_file_length);
+    }
+
     pthread_mutex_unlock(&x->x_mutex);
     return (w+5);
 }
@@ -321,6 +334,7 @@ static void *waveplayer_tilde_new(t_floatarg f)
     t_waveplayer_tilde *x = (t_waveplayer_tilde *)pd_new(waveplayer_tilde_class);
 
     x->x_out=outlet_new(&x->x_obj, &s_signal);
+    x->x_length_outlet = outlet_new(&x->x_obj, &s_float);   // length outlet
 
     x->x_loop_start = 44;   // 44 wave header
     x->x_loop_end = 44100;
@@ -332,6 +346,7 @@ static void *waveplayer_tilde_new(t_floatarg f)
     x->x_openfile = 0;
     x->x_closefile = 0;
     x->x_exitchild = 0;
+    x->x_file_opened = 0;
     x->x_fh = NULL;
 
     // zero bufs
